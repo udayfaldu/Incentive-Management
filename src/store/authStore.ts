@@ -124,7 +124,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     sessionStorage.setItem('is_signing_up', 'true');
     try {
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: email.trim().toLowerCase(),
         password: pass,
         options: {
           data: {
@@ -154,7 +154,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim().toLowerCase(),
         password: pass,
       });
 
@@ -187,7 +187,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const redirectUrl = import.meta.env.VITE_RESET_PASSWORD_REDIRECT_URL || `${window.location.origin}/reset-password`;
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
         redirectTo: redirectUrl,
       });
       if (error) throw error;
@@ -233,7 +233,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          email,
+          email: email.trim().toLowerCase(),
           password: oldPass,
         }),
       });

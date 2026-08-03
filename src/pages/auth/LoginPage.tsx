@@ -137,15 +137,6 @@ const LoginPage: React.FC = () => {
             {loading ? 'Signing in...' : 'Sign In'}
           </Button>
         </form>
-
-        <Box sx={{ mt: 3, textAlign: 'center' }}>
-          <Typography variant="body2" color="text.secondary">
-            Don't have an account?{' '}
-            <Link component={RouterLink} to="/register" variant="body2" color="primary" sx={{ fontWeight: 600 }}>
-              Register Here
-            </Link>
-          </Typography>
-        </Box>
       </Paper>
     </Box>
   );

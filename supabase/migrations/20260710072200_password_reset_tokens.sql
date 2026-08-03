@@ -60,7 +60,7 @@ BEGIN
   -- 2. Find the user ID from profiles
   SELECT id INTO user_id
   FROM public.profiles
-  WHERE email = user_email;
+  WHERE lower(email) = lower(user_email);
   
   IF user_id IS NULL THEN
     RETURN false;
