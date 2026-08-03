@@ -31,6 +31,8 @@ out/
 .env.local
 .env.development
 .env.development.local
+.env.staging
+.env.staging.local
 .env.test
 .env.test.local
 .env.production
