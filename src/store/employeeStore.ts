@@ -1,7 +1,5 @@
 import { create } from 'zustand';
-import type { Employee, IncentiveSettings } from '../types';
-import { computeEmployee } from '../services/incentiveService';
-import { DEFAULT_SETTINGS } from './settingsStore';
+import type { Employee } from '../types';
 import {
   isSupabaseConfigured,
   fetchEmployeesFromSupabase,
@@ -15,13 +13,12 @@ interface EmployeeState {
   employees: Employee[];
   loading: boolean;
   error: string | null;
-  fetchEmployees: (settingsByMonth?: Record<string, IncentiveSettings>) => Promise<void>;
+  fetchEmployees: () => Promise<void>;
   addEmployee: (emp: Employee) => Promise<void>;
   updateEmployee: (emp: Employee) => Promise<void>;
   updateMultipleEmployees: (emps: Employee[]) => Promise<void>;
   deleteEmployee: (id: string) => Promise<void>;
   bulkImport: (employees: Employee[], mode: 'replace' | 'merge') => Promise<void>;
-  recomputeWithSettings: (settingsByMonth: Record<string, IncentiveSettings>) => Promise<void>;
 }
 
 export const useEmployeeStore = create<EmployeeState>((set, get) => ({
@@ -29,20 +26,14 @@ export const useEmployeeStore = create<EmployeeState>((set, get) => ({
   loading: false,
   error: null,
 
-  fetchEmployees: async (settingsByMonth = {}) => {
+  fetchEmployees: async () => {
     set({ loading: true, error: null });
     try {
       if (isSupabaseConfigured) {
         const rawList = await fetchEmployeesFromSupabase();
         
-        // Recompute all with settings loaded in memory or default settings
-        const computedList = rawList.map((emp) => {
-          const key = `${emp.year}-${emp.month}`;
-          const currentSettings = settingsByMonth[key] || DEFAULT_SETTINGS;
-          return computeEmployee(emp, currentSettings);
-        });
-
-        set({ employees: computedList });
+        // We no longer recompute on load, we just use the raw list that has saved computations.
+        set({ employees: rawList });
       } else {
         set({ employees: [] });
       }
@@ -185,28 +176,5 @@ export const useEmployeeStore = create<EmployeeState>((set, get) => ({
     }
   },
 
-  recomputeWithSettings: async (settingsByMonth) => {
-    set({ loading: true, error: null });
-    try {
-      const nextEmployees = get().employees.map((emp) => {
-        const key = `${emp.year}-${emp.month}`;
-        const settings = settingsByMonth[key] || DEFAULT_SETTINGS;
-        return computeEmployee(emp, settings);
-      });
 
-      if (isSupabaseConfigured) {
-        // Update all employee records that changed in the database
-        for (const emp of nextEmployees) {
-          await saveEmployeeToSupabase(emp);
-        }
-      }
-
-      set({ employees: nextEmployees });
-    } catch (err: any) {
-      set({ error: err?.message || 'Failed to recompute employees' });
-      throw err;
-    } finally {
-      set({ loading: false });
-    }
-  },
 }));

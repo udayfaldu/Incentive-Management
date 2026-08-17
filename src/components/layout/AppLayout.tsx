@@ -24,7 +24,7 @@ const AppLayout: React.FC = () => {
   useEffect(() => {
     const loadData = async () => {
       await fetchSettings();
-      await fetchEmployees(useSettingsStore.getState().settingsByMonth);
+      await fetchEmployees();
     };
     loadData();
   }, [session, fetchSettings, fetchEmployees]);

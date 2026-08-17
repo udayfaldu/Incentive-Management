@@ -42,6 +42,11 @@ CREATE TABLE employee_records (
   leaves integer NOT NULL DEFAULT 0,
   remarks text,
   send_to_bd boolean NOT NULL DEFAULT false,
+  total_weekend_hours numeric NOT NULL DEFAULT 0,
+  total_hours numeric NOT NULL DEFAULT 0,
+  extended_hours_incentive numeric NOT NULL DEFAULT 0,
+  weekend_incentive numeric NOT NULL DEFAULT 0,
+  total_incentive numeric NOT NULL DEFAULT 0,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

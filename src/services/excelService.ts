@@ -1,4 +1,6 @@
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { v4 as uuidv4 } from 'uuid';
 import type { Employee, IncentiveSettings } from '../types';
 import {
@@ -9,91 +11,126 @@ import {
 import { MONTHS } from '../types';
 import { DEFAULT_SETTINGS } from '../store/settingsStore';
 
-
 const HEADERS = [
-  'Employee ID',
-  'Name',
-  'Role',
-  'Month',
-  'Year',
-  'Weekday Hours',
-  'Weekend Entries (DD-MM-YYYY:hrs;...)',
-  'Total Weekend Hours',
-  'Total Hours',
-  'Leaves',
-  'Remarks',
-  'Extended Hours Incentive',
-  'Weekend Incentive',
-  'Total Incentive',
+  { header: 'Employee ID', key: 'id', width: 14 },
+  { header: 'Name', key: 'name', width: 22 },
+  { header: 'Role', key: 'role', width: 10 },
+  { header: 'Month', key: 'month', width: 12 },
+  { header: 'Year', key: 'year', width: 8 },
+  { header: 'Weekday Hours', key: 'weekday', width: 14 },
+  { header: 'Weekend Entries (DD-MM-YYYY:hrs;...)', key: 'weekendLog', width: 40 },
+  { header: 'Total Weekend Hours', key: 'totalWeekend', width: 20 },
+  { header: 'Total Hours', key: 'totalHours', width: 12 },
+  { header: 'Leaves', key: 'leaves', width: 8 },
+  { header: 'Remarks', key: 'remarks', width: 25 },
+  { header: 'Extended Hours Incentive', key: 'extendedInc', width: 24 },
+  { header: 'Weekend Incentive', key: 'weekendInc', width: 20 },
+  { header: 'Total Incentive', key: 'totalInc', width: 16 },
 ];
+
+function styleHeaderRow(row: ExcelJS.Row) {
+  row.eachCell((cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1976D2' }, // MUI Primary blue
+    };
+    cell.font = {
+      bold: true,
+      color: { argb: 'FFFFFFFF' },
+      size: 11,
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.border = {
+      top: { style: 'thin' },
+      left: { style: 'thin' },
+      bottom: { style: 'thin' },
+      right: { style: 'thin' },
+    };
+  });
+  row.height = 30;
+}
 
 /**
  * Export all employees to an Excel file and trigger download.
  */
-export function exportEmployeesToExcel(employees: Employee[]): void {
-  const rows = employees.map((emp) => [
-    emp.employeeId,
-    emp.name,
-    emp.role,
-    MONTHS[emp.month - 1],
-    emp.year,
-    emp.weekdayHours,
-    serializeWeekendEntries(emp.weekendEntries),
-    emp.totalWeekendHours,
-    emp.totalHours,
-    emp.leaves,
-    emp.remarks,
-    emp.extendedHoursIncentive,
-    emp.weekendIncentive,
-    emp.totalIncentive,
-  ]);
+export async function exportEmployeesToExcel(employees: Employee[]): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Employees');
 
-  const ws = XLSX.utils.aoa_to_sheet([HEADERS, ...rows]);
+  ws.columns = HEADERS;
 
-  // Style column widths
-  ws['!cols'] = [
-    { wch: 14 }, // Employee ID
-    { wch: 22 }, // Name
-    { wch: 10 }, // Role
-    { wch: 12 }, // Month
-    { wch: 8 },  // Year
-    { wch: 14 }, // Weekday Hours
-    { wch: 40 }, // Weekend Entries
-    { wch: 20 }, // Total Weekend Hours
-    { wch: 12 }, // Total Hours
-    { wch: 8 },  // Leaves
-    { wch: 25 }, // Remarks
-    { wch: 24 }, // Extended Hours Incentive
-    { wch: 20 }, // Weekend Incentive
-    { wch: 16 }, // Total Incentive
-  ];
+  styleHeaderRow(ws.getRow(1));
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Employees');
-  XLSX.writeFile(wb, `incentive_report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  employees.forEach((emp) => {
+    const row = ws.addRow({
+      id: emp.employeeId,
+      name: emp.name,
+      role: emp.role,
+      month: MONTHS[emp.month - 1],
+      year: emp.year,
+      weekday: emp.weekdayHours,
+      weekendLog: serializeWeekendEntries(emp.weekendEntries),
+      totalWeekend: emp.totalWeekendHours,
+      totalHours: emp.totalHours,
+      leaves: emp.leaves,
+      remarks: emp.remarks,
+      extendedInc: emp.extendedHoursIncentive,
+      weekendInc: emp.weekendIncentive,
+      totalInc: emp.totalIncentive,
+    });
+    
+    // Add border to data cells
+    row.eachCell((cell) => {
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+        left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+        right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+      };
+      if (typeof cell.value === 'number') {
+        cell.alignment = { horizontal: 'right' };
+      }
+    });
+  });
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  saveAs(blob, `incentive_report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 /**
  * Export a blank template for import.
  */
-export function exportTemplate(): void {
+export async function exportTemplate(): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Template');
+
+  // For template, we only need the input columns (first 11)
+  ws.columns = HEADERS.slice(0, 11);
+
+  styleHeaderRow(ws.getRow(1));
+
   const sampleRows = [
-    ['EMP001', 'John Doe', 'Senior', 'January', 2026, 180, '03-01-2026:3;10-01-2026:8', '', '', 0, 'Sample remark'],
-    ['EMP002', 'Jane Smith', 'Junior', 'January', 2026, 160, '', '', '', 1, ''],
+    { id: 'EMP001', name: 'John Doe', role: 'Senior', month: 'January', year: 2026, weekday: 180, weekendLog: '03-01-2026:3;10-01-2026:8', totalWeekend: '', totalHours: '', leaves: 0, remarks: 'Sample remark' },
+    { id: 'EMP002', name: 'Jane Smith', role: 'Junior', month: 'January', year: 2026, weekday: 160, weekendLog: '', totalWeekend: '', totalHours: '', leaves: 1, remarks: '' },
   ];
 
-  const ws = XLSX.utils.aoa_to_sheet([
-    HEADERS.slice(0, 11), // exclude computed columns for template
-    ...sampleRows,
-  ]);
-  ws['!cols'] = [
-    { wch: 14 }, { wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 8 },
-    { wch: 14 }, { wch: 40 }, { wch: 20 }, { wch: 12 }, { wch: 8 }, { wch: 25 },
-  ];
+  sampleRows.forEach(data => {
+    const row = ws.addRow(data);
+    row.eachCell((cell) => {
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+        left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+        right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+      };
+    });
+  });
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Template');
-  XLSX.writeFile(wb, 'incentive_import_template.xlsx');
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  saveAs(blob, 'incentive_import_template.xlsx');
 }
 
 export interface ImportResult {
@@ -181,7 +218,7 @@ export function importEmployeesFromExcel(
             }
 
             // 5. Look up month settings and compute calculated fields
-            const key = `${base.year}-${base.month}`;
+            const key = '9999-12';
             const empSettings = settingsByMonth[key] || DEFAULT_SETTINGS;
             success.push(computeEmployee(base, empSettings));
           } catch (err) {

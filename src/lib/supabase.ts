@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { IncentiveSettings, BaseEmployee } from '../types';
+import type { IncentiveSettings, Employee } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -28,14 +28,18 @@ export async function fetchSettingsFromSupabase(): Promise<Record<string, Incent
   const { data: settingsData, error: settingsError } = await supabase
     .from('settings')
     .select('*')
-    .eq('user_id', userId);
+    .eq('user_id', userId)
+    .eq('year', 9999)
+    .eq('month', 12);
 
   if (settingsError) throw settingsError;
 
   const { data: tiersData, error: tiersError } = await supabase
     .from('extended_tiers')
     .select('*')
-    .eq('user_id', userId);
+    .eq('user_id', userId)
+    .eq('year', 9999)
+    .eq('month', 12);
 
   if (tiersError) throw tiersError;
 
@@ -71,21 +75,24 @@ export async function fetchSettingsFromSupabase(): Promise<Record<string, Incent
 }
 
 export async function saveSettingsToSupabase(
-  month: number,
-  year: number,
+  _month: number,
+  _year: number,
   settings: IncentiveSettings
 ): Promise<void> {
   if (!supabase) return;
 
   const userId = await getCurrentUserId();
 
+  const GLOBAL_YEAR = 9999;
+  const GLOBAL_MONTH = 12;
+
   // 1. Upsert primary settings row
   const { error: settingsError } = await supabase
     .from('settings')
     .upsert({
       user_id: userId,
-      year,
-      month,
+      year: GLOBAL_YEAR,
+      month: GLOBAL_MONTH,
       minimum_hours: settings.minimumHours,
       weekend_senior_half: settings.weekendSenior.halfDay,
       weekend_senior_full: settings.weekendSenior.fullDay,
@@ -95,13 +102,11 @@ export async function saveSettingsToSupabase(
 
   if (settingsError) throw settingsError;
 
-  // 2. Delete existing tiers for this month/year
+  // 2. Delete ALL existing tiers for this user to avoid ID conflicts with old month-based tiers
   const { error: deleteTiersError } = await supabase
     .from('extended_tiers')
     .delete()
-    .eq('user_id', userId)
-    .eq('year', year)
-    .eq('month', month);
+    .eq('user_id', userId);
 
   if (deleteTiersError) throw deleteTiersError;
 
@@ -110,8 +115,8 @@ export async function saveSettingsToSupabase(
     const tiersToInsert = settings.extendedTiers.map((t) => ({
       id: t.id,
       user_id: userId,
-      year,
-      month,
+      year: GLOBAL_YEAR,
+      month: GLOBAL_MONTH,
       from: t.from,
       to: t.to,
       senior_amount: t.seniorAmount,
@@ -143,7 +148,7 @@ export async function resetSettingsFromSupabase(month: number, year: number): Pr
 
 // ---------- Employee Operations ----------
 
-export async function fetchEmployeesFromSupabase(): Promise<BaseEmployee[]> {
+export async function fetchEmployeesFromSupabase(): Promise<Employee[]> {
   if (!supabase) return [];
 
   const userId = await getCurrentUserId();
@@ -191,11 +196,16 @@ export async function fetchEmployeesFromSupabase(): Promise<BaseEmployee[]> {
       leaves: Number(row.leaves),
       remarks: row.remarks || '',
       sendToBd: !!row.send_to_bd,
+      totalWeekendHours: Number(row.total_weekend_hours || 0),
+      totalHours: Number(row.total_hours || 0),
+      extendedHoursIncentive: Number(row.extended_hours_incentive || 0),
+      weekendIncentive: Number(row.weekend_incentive || 0),
+      totalIncentive: Number(row.total_incentive || 0),
     };
   });
 }
 
-export async function saveEmployeeToSupabase(emp: BaseEmployee): Promise<void> {
+export async function saveEmployeeToSupabase(emp: Employee): Promise<void> {
   if (!supabase) return;
 
   const userId = await getCurrentUserId();
@@ -215,6 +225,11 @@ export async function saveEmployeeToSupabase(emp: BaseEmployee): Promise<void> {
       leaves: emp.leaves,
       remarks: emp.remarks,
       send_to_bd: emp.sendToBd || false,
+      total_weekend_hours: emp.totalWeekendHours,
+      total_hours: emp.totalHours,
+      extended_hours_incentive: emp.extendedHoursIncentive,
+      weekend_incentive: emp.weekendIncentive,
+      total_incentive: emp.totalIncentive,
     });
 
   if (recordError) throw recordError;
@@ -244,7 +259,7 @@ export async function saveEmployeeToSupabase(emp: BaseEmployee): Promise<void> {
   }
 }
 
-export async function bulkSaveEmployeesToSupabase(emps: BaseEmployee[]): Promise<void> {
+export async function bulkSaveEmployeesToSupabase(emps: Employee[]): Promise<void> {
   if (!supabase || emps.length === 0) return;
 
   const userId = await getCurrentUserId();
@@ -261,6 +276,11 @@ export async function bulkSaveEmployeesToSupabase(emps: BaseEmployee[]): Promise
     leaves: emp.leaves,
     remarks: emp.remarks,
     send_to_bd: emp.sendToBd || false,
+    total_weekend_hours: emp.totalWeekendHours,
+    total_hours: emp.totalHours,
+    extended_hours_incentive: emp.extendedHoursIncentive,
+    weekend_incentive: emp.weekendIncentive,
+    total_incentive: emp.totalIncentive,
   }));
 
   const { error: recordError } = await supabase
@@ -278,7 +298,7 @@ export async function bulkSaveEmployeesToSupabase(emps: BaseEmployee[]): Promise
   if (deleteError) throw deleteError;
 
   const weekendEntriesToInsert = emps.flatMap((emp) =>
-    emp.weekendEntries.map((e) => ({
+    emp.weekendEntries.map((e: any) => ({
       id: e.id,
       employee_record_id: emp.id,
       date: e.date,
@@ -310,7 +330,7 @@ export async function deleteEmployeeFromSupabase(id: string): Promise<void> {
 }
 
 export async function bulkImportEmployeesToSupabase(
-  employees: BaseEmployee[],
+  employees: Employee[],
   mode: 'replace' | 'merge'
 ): Promise<void> {
   if (!supabase) return;
@@ -325,18 +345,6 @@ export async function bulkImportEmployeesToSupabase(
       .eq('user_id', userId);
 
     if (clearError) throw clearError;
-  } else {
-    // Merge: delete any existing employee records where employee_id is in the import list for the user
-    const importedEmpIds = Array.from(new Set(employees.map((e) => e.employeeId)));
-    if (importedEmpIds.length > 0) {
-      const { error: mergeDeleteError } = await supabase
-        .from('employee_records')
-        .delete()
-        .eq('user_id', userId)
-        .in('employee_id', importedEmpIds);
-
-      if (mergeDeleteError) throw mergeDeleteError;
-    }
   }
 
   // Insert all new records

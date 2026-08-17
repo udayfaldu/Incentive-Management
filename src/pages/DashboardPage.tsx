@@ -64,10 +64,55 @@ const DashboardPage: React.FC = () => {
     });
   }, [employees, filterYear, filterMonths, filterRole, filterEmployees]);
 
-  const totalEmployees = filtered.length;
+  // Aggregate records by employee to prevent duplicates across multiple months
+  const aggregatedEmployees = useMemo(() => {
+    const map = new Map<string, { 
+      id: string; 
+      employeeId: string; 
+      name: string; 
+      role: 'Senior' | 'Junior'; 
+      totalIncentive: number; 
+      extendedHoursIncentive: number; 
+      weekendIncentive: number; 
+      weekdayHours: number;
+      totalWeekendHours: number;
+      totalHours: number;
+      leaves: number;
+    }>();
+    
+    for (const emp of filtered) {
+      if (!map.has(emp.employeeId)) {
+        map.set(emp.employeeId, {
+          id: emp.employeeId,
+          employeeId: emp.employeeId,
+          name: emp.name,
+          role: emp.role,
+          totalIncentive: 0,
+          extendedHoursIncentive: 0,
+          weekendIncentive: 0,
+          weekdayHours: 0,
+          totalWeekendHours: 0,
+          totalHours: 0,
+          leaves: 0,
+        });
+      }
+      const existing = map.get(emp.employeeId)!;
+      existing.totalIncentive += emp.totalIncentive || 0;
+      existing.extendedHoursIncentive += emp.extendedHoursIncentive || 0;
+      existing.weekendIncentive += emp.weekendIncentive || 0;
+      existing.weekdayHours += emp.weekdayHours || 0;
+      existing.totalWeekendHours += emp.totalWeekendHours || 0;
+      existing.totalHours += emp.totalHours || 0;
+      existing.leaves += emp.leaves || 0;
+    }
+    
+    return Array.from(map.values()).sort((a, b) => b.totalIncentive - a.totalIncentive);
+  }, [filtered]);
+
+  const totalEmployees = aggregatedEmployees.length;
   const totalIncentive = filtered.reduce((s, e) => s + e.totalIncentive, 0);
-  const seniorCount = filtered.filter((e) => e.role === 'Senior').length;
-  const juniorCount = filtered.filter((e) => e.role === 'Junior').length;
+  const seniorCount = aggregatedEmployees.filter((e) => e.role === 'Senior').length;
+  const juniorCount = aggregatedEmployees.filter((e) => e.role === 'Junior').length;
 
   // Subtitle showing selected months
   const subtitleLabel = useMemo(() => {
@@ -88,9 +133,7 @@ const DashboardPage: React.FC = () => {
   }, [filterMonths]);
 
 
-  const chartData = filtered
-    .slice()
-    .sort((a, b) => b.totalIncentive - a.totalIncentive)
+  const chartData = aggregatedEmployees
     .slice(0, 10)
     .map((e) => ({
       name: e.name.split(' ')[0],
@@ -112,10 +155,7 @@ const DashboardPage: React.FC = () => {
     });
   }, [filtered, filterMonths]);
 
-  const topEarners = filtered
-    .slice()
-    .sort((a, b) => b.totalIncentive - a.totalIncentive)
-    .slice(0, 5);
+  const topEarners = aggregatedEmployees.slice(0, 5);
 
   return (
     <Box>
@@ -491,14 +531,14 @@ const DashboardPage: React.FC = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filtered.length === 0 ? (
+                  {aggregatedEmployees.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={10} align="center" sx={{ color: 'text.secondary', py: 4 }}>
                         No records found matching the selected filters
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filtered.map((emp) => (
+                    aggregatedEmployees.map((emp) => (
                       <TableRow key={emp.id} hover>
                         <TableCell>
                           <Typography variant="body2" sx={{ fontWeight: 500 }}>{emp.name}</Typography>
@@ -508,7 +548,7 @@ const DashboardPage: React.FC = () => {
                         </TableCell>
                         <TableCell><RoleChip role={emp.role} /></TableCell>
                         <TableCell>
-                          <Typography variant="body2">{MONTHS[emp.month - 1]} {emp.year}</Typography>
+                          <Typography variant="body2">{periodValue}</Typography>
                         </TableCell>
                         <TableCell align="right">{emp.weekdayHours}</TableCell>
                         <TableCell align="right">{emp.totalWeekendHours}</TableCell>

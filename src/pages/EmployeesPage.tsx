@@ -5,41 +5,54 @@ import {
 } from '@mui/material';
 import { DataGrid, type GridColDef, type GridRenderCellParams } from '@mui/x-data-grid';
 import {
-  AddRounded, EditRounded, DeleteRounded,
-  FileDownloadRounded, FilterListRounded, HistoryRounded,
-  VisibilityRounded,
+  AddRounded, FileDownloadRounded, FilterListRounded, HistoryRounded,
 } from '@mui/icons-material';
 import { useEmployeeStore } from '../store/employeeStore';
 import type { Employee } from '../types';
-import { MONTH_OPTIONS, MONTHS } from '../types';
 import { exportEmployeesToExcel } from '../services/excelService';
 import SearchBar from '../components/common/SearchBar';
 import { RoleChip, IncentiveChip } from '../components/common/StatusChips';
 import EmployeeForm from '../components/employees/EmployeeForm';
-import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmployeeHistoryDrawer from '../components/employees/EmployeeHistoryDrawer';
+import { MONTH_OPTIONS } from '../types';
 
-const CURRENT_MONTH = new Date().getMonth() + 1;
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = Array.from({ length: 8 }, (_, i) => CURRENT_YEAR - 2 + i);
 
 const EmployeesPage: React.FC = () => {
-  const { employees, addEmployee, updateEmployee, deleteEmployee, updateMultipleEmployees } = useEmployeeStore();
+  const { employees, addEmployee, updateEmployee, updateMultipleEmployees } = useEmployeeStore();
 
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState<string>('all');
-  const [filterMonth, setFilterMonth] = useState<number | 'all'>(CURRENT_MONTH);
-  const [filterYear, setFilterYear] = useState<number | 'all'>(CURRENT_YEAR);
+  const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
+  const [filterYear, setFilterYear] = useState<number | 'all'>('all');
   const [showFilters, setShowFilters] = useState(false);
 
   const [formOpen, setFormOpen] = useState(false);
-  const [formReadOnly, setFormReadOnly] = useState(false);
-  const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
   const [historyEmpId, setHistoryEmpId] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    return employees.filter((e) => {
+  const isMonthMode = filterMonth !== 'all';
+
+  const filteredData = useMemo(() => {
+    let sourceData = employees;
+
+    if (!isMonthMode) {
+      // Directory Mode: Group records by employeeId to only show one row per employee
+      const map = new Map<string, Employee>();
+      // Pre-filter by year if selected so directory only shows employees active that year
+      const yearFiltered = filterYear === 'all' ? employees : employees.filter(e => e.year === filterYear);
+
+      yearFiltered.forEach((e) => {
+        const existing = map.get(e.employeeId);
+        // Keep the most recent record
+        if (!existing || e.year > existing.year || (e.year === existing.year && e.month > existing.month)) {
+          map.set(e.employeeId, e);
+        }
+      });
+      sourceData = Array.from(map.values());
+    }
+
+    return sourceData.filter((e) => {
       const q = search.toLowerCase();
       const matchSearch =
         !q ||
@@ -47,57 +60,63 @@ const EmployeesPage: React.FC = () => {
         e.employeeId.toLowerCase().includes(q) ||
         e.remarks.toLowerCase().includes(q);
       const matchRole = filterRole === 'all' || e.role === filterRole;
-      const matchMonth = filterMonth === 'all' || e.month === filterMonth;
-      const matchYear = filterYear === 'all' || e.year === filterYear;
-      return matchSearch && matchRole && matchMonth && matchYear;
+      
+      if (isMonthMode) {
+        const matchMonth = e.month === filterMonth;
+        const matchYear = filterYear === 'all' || e.year === filterYear;
+        return matchSearch && matchRole && matchMonth && matchYear;
+      }
+      
+      // In directory mode, we don't apply month/year to individual rows again
+      return matchSearch && matchRole;
     });
-  }, [employees, search, filterRole, filterMonth, filterYear]);
+  }, [employees, search, filterRole, filterMonth, filterYear, isMonthMode]);
 
-  const totalExtended = useMemo(() => filtered.reduce((sum, e) => sum + (e.extendedHoursIncentive || 0), 0), [filtered]);
-  const totalWeekend = useMemo(() => filtered.reduce((sum, e) => sum + (e.weekendIncentive || 0), 0), [filtered]);
-  const totalIncentive = useMemo(() => filtered.reduce((sum, e) => sum + (e.totalIncentive || 0), 0), [filtered]);
+  const recordsToExport = useMemo(() => {
+    if (isMonthMode) {
+      return filteredData;
+    } else {
+      const validIds = new Set(filteredData.map(e => e.employeeId));
+      return employees.filter(e => validIds.has(e.employeeId));
+    }
+  }, [employees, filteredData, isMonthMode]);
 
-  const handleAdd = () => { setEditEmployee(null); setFormReadOnly(false); setFormOpen(true); };
-  const handleEdit = (emp: Employee) => { setEditEmployee(emp); setFormReadOnly(false); setFormOpen(true); };
-  const handleView = (emp: Employee) => { setEditEmployee(emp); setFormReadOnly(true); setFormOpen(true); };
+  const totalExtended = useMemo(() => filteredData.reduce((sum, e) => sum + (e.extendedHoursIncentive || 0), 0), [filteredData]);
+  const totalWeekend = useMemo(() => filteredData.reduce((sum, e) => sum + (e.weekendIncentive || 0), 0), [filteredData]);
+  const totalIncentive = useMemo(() => filteredData.reduce((sum, e) => sum + (e.totalIncentive || 0), 0), [filteredData]);
+
+  const handleAdd = () => { setFormOpen(true); };
+  
   const handleSave = (emp: Employee) => {
-    if (editEmployee) updateEmployee(emp);
-    else addEmployee(emp);
+    addEmployee(emp);
     setFormOpen(false);
-    setEditEmployee(null);
-  };
-  const handleDeleteConfirm = () => {
-    if (deleteTarget) deleteEmployee(deleteTarget.id);
-    setDeleteTarget(null);
   };
 
-  const handleExport = async (recordsToExport: Employee[]) => {
+  const handleExport = async () => {
     exportEmployeesToExcel(recordsToExport);
 
-    const recordsToUpdate = recordsToExport
-      .filter((rec) => !rec.sendToBd)
-      .map((rec) => ({ ...rec, sendToBd: true }));
+    // If exporting in month mode, optionally mark them as sent to BD
+    if (isMonthMode) {
+      const recordsToUpdate = recordsToExport
+        .filter((rec) => !rec.sendToBd)
+        .map((rec) => ({ ...rec, sendToBd: true }));
 
-    if (recordsToUpdate.length > 0) {
-      await updateMultipleEmployees(recordsToUpdate);
+      if (recordsToUpdate.length > 0) {
+        await updateMultipleEmployees(recordsToUpdate);
+      }
     }
   };
 
-  const columns: GridColDef[] = [
-    { field: 'employeeId', headerName: 'Emp ID', width: 110 },
-    { field: 'name', headerName: 'Name', flex: 1, minWidth: 150 },
+  const baseColumns: GridColDef[] = [
+    { field: 'employeeId', headerName: 'Emp ID', width: 130 },
+    { field: 'name', headerName: 'Name', flex: 1, minWidth: 200 },
     {
       field: 'role', headerName: 'Role', width: 100,
       renderCell: (params: GridRenderCellParams) => <RoleChip role={params.value} />,
     },
-    {
-      field: 'month', headerName: 'Month / Year', width: 130,
-      renderCell: (params: GridRenderCellParams) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-          <Typography variant="body2">{MONTHS[params.row.month - 1]} {params.row.year}</Typography>
-        </Box>
-      ),
-    },
+  ];
+
+  const monthColumns: GridColDef[] = [
     { field: 'weekdayHours', headerName: 'Weekday Hrs', width: 110, type: 'number' },
     { field: 'totalWeekendHours', headerName: 'Weekend Hrs', width: 110, type: 'number' },
     { field: 'totalHours', headerName: 'Total Hrs', width: 100, type: 'number' },
@@ -138,53 +157,38 @@ const EmployeesPage: React.FC = () => {
         </Box>
       )
     },
-    {
-      field: 'actions', headerName: 'Actions', width: 170, sortable: false, filterable: false,
-      renderCell: (params: GridRenderCellParams) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <Tooltip title="Month History">
-            <IconButton size="small" color="secondary" id={`history-emp-${params.row.id}`}
-              onClick={() => setHistoryEmpId((params.row as Employee).employeeId)}>
-              <HistoryRounded fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="View">
-            <IconButton size="small" color="info" id={`view-emp-${params.row.id}`}
-              onClick={() => handleView(params.row as Employee)}>
-              <VisibilityRounded fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Edit">
-            <IconButton size="small" color="primary" id={`edit-emp-${params.row.id}`}
-              onClick={() => handleEdit(params.row as Employee)}>
-              <EditRounded fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete this month">
-            <IconButton size="small" color="error" id={`delete-emp-${params.row.id}`}
-              onClick={() => setDeleteTarget(params.row as Employee)}>
-              <DeleteRounded fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      ),
-    },
   ];
+
+  const actionColumn: GridColDef = {
+    field: 'actions', headerName: 'Actions', width: 150, sortable: false, filterable: false,
+    renderCell: (params: GridRenderCellParams) => (
+      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', height: '100%' }}>
+        <Tooltip title="View Records / History">
+          <IconButton size="small" color="primary" id={`history-emp-${params.row.id}`}
+            onClick={() => setHistoryEmpId((params.row as Employee).employeeId)}>
+            <HistoryRounded fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+    ),
+  };
+
+  const columns = isMonthMode ? [...baseColumns, ...monthColumns, actionColumn] : [...baseColumns, actionColumn];
 
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }} gutterBottom>
-            Employee Records
+            Employee Directory
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {filtered.length} of {employees.length} records
+            {filteredData.length} records
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>
           <Button variant="outlined" startIcon={<FileDownloadRounded />}
-            onClick={() => handleExport(filtered)} id="export-employees-btn">
+            onClick={handleExport} id="export-employees-btn">
             Export
           </Button>
           <Button variant="contained" startIcon={<AddRounded />} onClick={handleAdd}
@@ -236,7 +240,7 @@ const EmployeesPage: React.FC = () => {
 
       <Paper sx={{ height: 520 }}>
         <DataGrid
-          rows={filtered}
+          rows={filteredData}
           columns={columns}
           pageSizeOptions={[10, 25, 50]}
           initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
@@ -252,41 +256,31 @@ const EmployeesPage: React.FC = () => {
         />
       </Paper>
 
-      {/* ── Summary Card ── */}
-      <Paper sx={{ p: 2, mt: 2, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 2, border: '1px solid', borderColor: 'divider', boxShadow: 'none' }}>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 700 }}>
-            FILTERED SUMMARY:
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
-          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
-            Weekday Extended: <strong>₹{totalExtended.toLocaleString('en-IN')}</strong>
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
-            Weekend/Holiday: <strong>₹{totalWeekend.toLocaleString('en-IN')}</strong>
-          </Typography>
-          <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
-          <Typography variant="subtitle1" color="success.main" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
-            Total Incentive: <strong>₹{totalIncentive.toLocaleString('en-IN')}</strong>
-          </Typography>
-        </Box>
-      </Paper>
+      {/* ── Summary Card for Month Mode ── */}
+      {isMonthMode && (
+        <Paper sx={{ p: 2, mt: 2, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 2, border: '1px solid', borderColor: 'divider', boxShadow: 'none' }}>
+          <Box>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 700 }}>
+              FILTERED SUMMARY:
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+              Weekday Extended: <strong>₹{totalExtended.toLocaleString('en-IN')}</strong>
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+              Weekend/Holiday: <strong>₹{totalWeekend.toLocaleString('en-IN')}</strong>
+            </Typography>
+            <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+            <Typography variant="subtitle1" color="success.main" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+              Total Incentive: <strong>₹{totalIncentive.toLocaleString('en-IN')}</strong>
+            </Typography>
+          </Box>
+        </Paper>
+      )}
 
-      <EmployeeForm open={formOpen} employee={editEmployee} readOnly={formReadOnly} onSave={handleSave} onClose={() => setFormOpen(false)} />
-      <ConfirmDialog
-        open={!!deleteTarget}
-        title="Delete Month Record"
-        message={
-          deleteTarget
-            ? `Delete ${deleteTarget.name}'s record for ${MONTHS[deleteTarget.month - 1]} ${deleteTarget.year}? This cannot be undone.`
-            : ''
-        }
-        confirmLabel="Delete"
-        severity="error"
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteTarget(null)}
-      />
+      <EmployeeForm open={formOpen} employee={null} readOnly={false} onSave={handleSave} onClose={() => setFormOpen(false)} />
+      
       <EmployeeHistoryDrawer
         employeeId={historyEmpId}
         onClose={() => setHistoryEmpId(null)}
