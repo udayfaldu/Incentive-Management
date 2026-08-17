@@ -3,7 +3,7 @@ name: Supabase Keep Alive Cron
 on:
   schedule:
     # Runs at 00:00 UTC every day
-    - cron: '* * * * *'
+    - cron:  '0 0 * * *'
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
