@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Box, Grid, Typography, TextField, Button, Paper, Divider, Alert,
   InputAdornment, Slider, Stack, Chip, Table, TableBody, TableCell,
-  TableHead, TableRow, IconButton, Tooltip, MenuItem,
+  TableHead, TableRow, IconButton, Tooltip,
 } from '@mui/material';
 import {
   SaveRounded, RestartAltRounded, InfoOutlined,
@@ -10,16 +10,11 @@ import {
 } from '@mui/icons-material';
 import { v4 as uuidv4 } from 'uuid';
 import { useSettingsStore, DEFAULT_SETTINGS } from '../store/settingsStore';
-import { useEmployeeStore } from '../store/employeeStore';
 import type { IncentiveSettings, ExtendedTier } from '../types';
-import { MONTH_OPTIONS } from '../types';
 import {
   getSortedTiers,
 } from '../services/incentiveService';
 import ConfirmDialog from '../components/common/ConfirmDialog';
-
-const CURRENT_YEAR = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: 8 }, (_, i) => CURRENT_YEAR - 2 + i);
 
 // ─── Reusable amount field ─────────────────────────────────────────────────
 const AmountField = ({ label, value, onChange, id }: {
@@ -44,15 +39,29 @@ const AmountField = ({ label, value, onChange, id }: {
 );
 
 const SettingsPage: React.FC = () => {
-  const { settingsByMonth, updateSettingsForMonth, resetSettingsForMonth } = useSettingsStore();
-  const { recomputeWithSettings } = useEmployeeStore();
+  const settingsByMonth = useSettingsStore((s) => s.settingsByMonth);
+  const { updateSettingsForMonth, resetSettingsForMonth } = useSettingsStore();
 
-  const [selectedMonth, setSelectedMonth] = useState<number>(() => new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState<number>(() => CURRENT_YEAR);
+  const selectedMonth = new Date().getMonth() + 1;
+  const selectedYear = new Date().getFullYear();
 
   const currentMonthSettings = React.useMemo(() => {
     const key = `${selectedYear}-${selectedMonth}`;
-    return settingsByMonth[key] || DEFAULT_SETTINGS;
+    if (settingsByMonth[key]) return settingsByMonth[key];
+    
+    // If no settings exist for the current month, inherit the most recent settings
+    const sortedKeys = Object.keys(settingsByMonth).sort((a, b) => {
+      const [yearA, monthA] = a.split('-').map(Number);
+      const [yearB, monthB] = b.split('-').map(Number);
+      if (yearA !== yearB) return yearB - yearA;
+      return monthB - monthA;
+    });
+    
+    if (sortedKeys.length > 0) {
+      return settingsByMonth[sortedKeys[0]];
+    }
+    
+    return DEFAULT_SETTINGS;
   }, [settingsByMonth, selectedMonth, selectedYear]);
 
   const [local, setLocal] = useState<IncentiveSettings>(() => ({
@@ -132,22 +141,12 @@ const SettingsPage: React.FC = () => {
   // ─── Save / Reset ─────────────────────────────────────────────────────────
   const handleSave = () => {
     updateSettingsForMonth(selectedMonth, selectedYear, local);
-    const newSettingsByMonth = {
-      ...settingsByMonth,
-      [`${selectedYear}-${selectedMonth}`]: local,
-    };
-    recomputeWithSettings(newSettingsByMonth);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
 
   const handleReset = () => {
     resetSettingsForMonth(selectedMonth, selectedYear);
-    const newSettingsByMonth = {
-      ...settingsByMonth,
-    };
-    delete newSettingsByMonth[`${selectedYear}-${selectedMonth}`];
-    recomputeWithSettings(newSettingsByMonth);
     setResetOpen(false);
   };
 
@@ -164,7 +163,7 @@ const SettingsPage: React.FC = () => {
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }} gutterBottom>Settings</Typography>
           <Typography variant="body2" color="text.secondary">
-            Configure incentive rules. Changes apply to all records immediately on save.
+            Configure incentive rules. Changes apply automatically to all future calculations. Historical data is preserved.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>
@@ -179,46 +178,11 @@ const SettingsPage: React.FC = () => {
         </Stack>
       </Box>
 
-      {/* ── Month & Year Selector ── */}
-      <Paper sx={{ p: 2.5, mb: 3, display: 'flex', alignItems: 'center', gap: 2, border: '1px solid', borderColor: 'divider', boxShadow: 'none' }}>
-        <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
-          SELECT MONTH TO CONFIGURE:
-        </Typography>
-        <TextField
-          id="settings-month"
-          select
-          size="small"
-          label="Month"
-          value={selectedMonth}
-          onChange={(e) => setSelectedMonth(Number(e.target.value))}
-          sx={{ minWidth: 150 }}
-        >
-          {MONTH_OPTIONS.map((m) => (
-            <MenuItem key={m.value} value={m.value}>
-              {m.label}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          id="settings-year"
-          select
-          size="small"
-          label="Year"
-          value={selectedYear}
-          onChange={(e) => setSelectedYear(Number(e.target.value))}
-          sx={{ minWidth: 120 }}
-        >
-          {YEAR_OPTIONS.map((y) => (
-            <MenuItem key={y} value={y}>
-              {y}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Paper>
+
 
       {saved && (
         <Alert severity="success" sx={{ mb: 2 }}>
-          Settings saved and all employee incentives recomputed successfully!
+          Settings saved successfully! Future calculations will use these settings.
         </Alert>
       )}
 
@@ -482,8 +446,8 @@ const SettingsPage: React.FC = () => {
 
       <ConfirmDialog
         open={resetOpen}
-        title={`Reset settings for ${MONTH_OPTIONS[selectedMonth - 1]?.label} ${selectedYear}`}
-        message={`This will reset the settings for ${MONTH_OPTIONS[selectedMonth - 1]?.label} ${selectedYear} (including custom tiers) to defaults and recompute incentives for the month.`}
+        title={`Reset settings`}
+        message={`This will reset the global settings (including custom tiers) to defaults.`}
         confirmLabel="Reset"
         severity="warning"
         onConfirm={handleReset}

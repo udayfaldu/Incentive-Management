@@ -57,7 +57,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   updateSettingsForMonth: async (month, year, updates) => {
     set({ loading: true, error: null });
-    const key = `${year}-${month}`;
+    const key = '9999-12';
     const current = get().settingsByMonth[key] || DEFAULT_SETTINGS;
 
     const updated: IncentiveSettings = {
@@ -97,7 +97,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   resetSettingsForMonth: async (month, year) => {
     set({ loading: true, error: null });
-    const key = `${year}-${month}`;
+    const key = '9999-12';
     try {
       if (isSupabaseConfigured) {
         await resetSettingsFromSupabase(month, year);

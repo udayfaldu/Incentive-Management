@@ -114,11 +114,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({ open, employee, onSave, onC
   }, [matchedEmployee, isEdit, setValue]);
 
   const currentSettings = React.useMemo(() => {
-    const formMonth = Number(watchedValues.month) || (new Date().getMonth() + 1);
-    const formYear = Number(watchedValues.year) || CURRENT_YEAR;
-    const key = `${formYear}-${formMonth}`;
+    const key = '9999-12';
     return settingsByMonth[key] || DEFAULT_SETTINGS;
-  }, [settingsByMonth, watchedValues.month, watchedValues.year]);
+  }, [settingsByMonth]);
 
   const preview = React.useMemo(() => {
     return computeEmployee({
